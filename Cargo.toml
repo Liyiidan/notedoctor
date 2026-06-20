@@ -1,0 +1,10 @@
+[package]
+name = "notedoctor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+walkdir = "2.5"
+regex = "1.11"
+colored = "2.2"
+inquire = "0.7"
