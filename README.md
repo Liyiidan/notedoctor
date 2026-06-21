@@ -4,7 +4,7 @@
 
 ---
 
-## 项目简介 / Introduction
+## 项目简介 
 
 **NoteDoctor** 是一个使用 Rust 编写的本地 Markdown 知识库健康诊断工具。它可以递归扫描指定文件夹中的 Markdown 文件和图片资源，分析笔记之间的链接关系，并找出常见的知识库维护问题，例如死链、孤儿笔记和未使用的图片资源。
 
@@ -13,9 +13,9 @@
 
 ---
 
-## 核心特性 / Features
+## 核心特性 
 
-### 1. 死链诊断 / Broken Link Detection
+### 1. 死链诊断 
 
 扫描 Markdown 文件中的 Obsidian 双向链接：
 
@@ -26,7 +26,7 @@
 
 如果链接指向的笔记不存在，NoteDoctor 会将其标记为 `BrokenLink`，并在终端中用红色高亮显示。
 
-### 2. 孤儿笔记检测 / Orphan Note Detection
+### 2. 孤儿笔记检测 
 
 NoteDoctor 会统计每篇笔记的：
 
@@ -37,7 +37,7 @@ NoteDoctor 会统计每篇笔记的：
 
 这类笔记通常不一定是错误，但可能说明它还没有真正融入知识网络。
 
-### 3. 冗余资源检测 / Dead Asset Detection
+### 3. 冗余资源检测 
 
 工具会扫描本地 `.png`、`.jpg`、`.jpeg` 图片资源，并解析 Markdown 图片引用：
 
@@ -47,7 +47,7 @@ NoteDoctor 会统计每篇笔记的：
 
 如果某张图片存在于文件夹中，但没有被任何 Markdown 文件引用，就会被标记为 `DeadAsset`。这有助于清理长期堆积的无用截图、插图或附件。
 
-### 4. 终端交互界面 / Interactive CLI
+### 4. 终端交互界面 
 
 项目使用 `inquire` 实现命令行路径输入，使用 `colored` 输出彩色诊断报告：
 
@@ -56,7 +56,7 @@ NoteDoctor 会统计每篇笔记的：
 - 黄色：孤儿笔记
 - 蓝色：冗余资源
 
-### 5. 单元测试覆盖 / Unit Tests
+### 5. 单元测试覆盖 
 
 项目目前包含 19 个单元测试，覆盖：
 
@@ -70,7 +70,7 @@ NoteDoctor 会统计每篇笔记的：
 
 ---
 
-## 技术栈 / Tech Stack
+## 技术栈 
 
 | 类别 | 技术 |
 |------|------|
@@ -83,7 +83,7 @@ NoteDoctor 会统计每篇笔记的：
 
 ---
 
-## 项目结构 / Project Structure
+## 项目结构
 
 ```text
 notedoctor/
@@ -100,12 +100,12 @@ notedoctor/
 
 ---
 
-## 安装与运行 / Installation & Usage
+## 安装与运行 
 
 ### 1. 克隆项目
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/Liyiidan/notedoctor.git
 cd notedoctor
 ```
 
@@ -135,7 +135,7 @@ cargo run
 
 ---
 
-## 测试 / Testing
+## 测试 
 
 运行全部测试：
 
@@ -155,7 +155,7 @@ test result: ok. 19 passed; 0 failed
 
 ---
 
-## 核心设计思路 / Design Notes
+## 核心设计思路 
 
 ### 1. 扫描阶段
 
@@ -187,7 +187,7 @@ test result: ok. 19 passed; 0 failed
 
 ---
 
-## 示例输出 / Example Output
+## 示例输出 
 
 ```text
 ╔══════════════════════════════════════╗
@@ -210,7 +210,7 @@ test result: ok. 19 passed; 0 failed
 
 ---
 
-## 当前限制 / Limitations
+## 当前限制 
 
 目前版本主要完成课程项目要求中的核心功能，还有一些可以继续改进的地方：
 
@@ -223,7 +223,7 @@ test result: ok. 19 passed; 0 failed
 
 ---
 
-## 后续改进方向 / Future Work
+## 后续改进方向 
 
 - 支持更多资源类型，例如 `.gif`、`.webp`、`.pdf`
 - 支持导出 JSON / Markdown 格式诊断报告
@@ -233,7 +233,7 @@ test result: ok. 19 passed; 0 failed
 
 ---
 
-## 课程项目总结 / Course Project Summary
+## 课程项目总结 
 
 通过这个项目，我实践了 Rust 中比较核心的工程能力：
 
