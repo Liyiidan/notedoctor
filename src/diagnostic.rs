@@ -5,6 +5,113 @@ use crate::models::{DiagnosticReport, NoteIssue};
 use crate::parser::{extract_image_refs, extract_links};
 use crate::scanner::{scan_assets, scan_directory};
 
+pub trait DiagnosticRule {
+    fn name(&self) -> &str;
+    fn apply(&self, ctx: &DiagnosticContext, report: &mut DiagnosticReport);
+}
+
+pub struct DiagnosticContext {
+    md_files: Vec<PathBuf>,
+    asset_files: Vec<PathBuf>,
+    note_index: HashMap<String, PathBuf>,
+    links_by_file: HashMap<PathBuf, Vec<String>>,
+    referenced_images: HashSet<String>,
+}
+
+struct BrokenLinkRule;
+struct OrphanNoteRule;
+struct DeadAssetRule;
+
+impl DiagnosticRule for BrokenLinkRule {
+    fn name(&self) -> &str {
+        "broken-link"
+    }
+
+    fn apply(&self, ctx: &DiagnosticContext, report: &mut DiagnosticReport) {
+        for (file, links) in &ctx.links_by_file {
+            for link in links {
+                let link_stem = link.rsplit('/').next().unwrap_or(link).to_lowercase();
+
+                if !ctx.note_index.contains_key(&link_stem) {
+                    // 这里的生命周期有点绕，为了不报所有权错误直接用了 .clone()，后面有空再优化。
+                    report.broken_links.push(NoteIssue::BrokenLink {
+                        file: file.clone(),
+                        link: link.clone(),
+                    });
+                }
+            }
+        }
+    }
+}
+
+impl DiagnosticRule for OrphanNoteRule {
+    fn name(&self) -> &str {
+        "orphan-note"
+    }
+
+    fn apply(&self, ctx: &DiagnosticContext, report: &mut DiagnosticReport) {
+        let mut in_degree: HashMap<String, usize> =
+            ctx.note_index.keys().map(|k| (k.clone(), 0)).collect();
+        let mut out_degree: HashMap<PathBuf, usize> =
+            ctx.md_files.iter().map(|p| (p.clone(), 0usize)).collect();
+
+        for (file, links) in &ctx.links_by_file {
+            for link in links {
+                let link_stem = link.rsplit('/').next().unwrap_or(link).to_lowercase();
+
+                if ctx.note_index.contains_key(&link_stem) {
+                    *in_degree.entry(link_stem).or_insert(0) += 1;
+                    *out_degree.entry(file.clone()).or_insert(0) += 1;
+                }
+            }
+        }
+
+        for file in &ctx.md_files {
+            let stem = file
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_lowercase())
+                .unwrap_or_default();
+
+            let is_unreferenced = in_degree.get(&stem).copied().unwrap_or(0) == 0;
+            let has_no_outgoing = out_degree.get(file).copied().unwrap_or(0) == 0;
+
+            if is_unreferenced && has_no_outgoing {
+                report
+                    .orphan_notes
+                    .push(NoteIssue::OrphanNote { file: file.clone() });
+            }
+        }
+    }
+}
+
+impl DiagnosticRule for DeadAssetRule {
+    fn name(&self) -> &str {
+        "dead-asset"
+    }
+
+    fn apply(&self, ctx: &DiagnosticContext, report: &mut DiagnosticReport) {
+        for asset in &ctx.asset_files {
+            let asset_name = asset
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_lowercase())
+                .unwrap_or_default();
+
+            if !ctx.referenced_images.contains(&asset_name) {
+                report.dead_assets.push(NoteIssue::DeadAsset {
+                    file: asset.clone(),
+                });
+            }
+        }
+    }
+}
+
+fn apply_rule<R: DiagnosticRule>(rule: R, ctx: &DiagnosticContext, report: &mut DiagnosticReport) {
+    let _rule_name = rule.name();
+    rule.apply(ctx, report);
+}
+
 pub fn run_diagnostics(root_dir: &str) -> DiagnosticReport {
     let mut report = DiagnosticReport::new();
 
@@ -16,8 +123,6 @@ pub fn run_diagnostics(root_dir: &str) -> DiagnosticReport {
         }
     };
 
-    report.total_notes = md_files.len();
-
     let asset_files = match scan_assets(root_dir) {
         Ok(files) => files,
         Err(e) => {
@@ -26,91 +131,56 @@ pub fn run_diagnostics(root_dir: &str) -> DiagnosticReport {
         }
     };
 
+    report.total_notes = md_files.len();
     report.total_assets = asset_files.len();
 
     // 用文件名 stem 做索引，先不处理同名笔记冲突；真正的 Obsidian 规则要复杂很多。
-    let note_index: HashMap<String, &PathBuf> = md_files
+    let note_index: HashMap<String, PathBuf> = md_files
         .iter()
         .filter_map(|p| {
             p.file_stem()
                 .and_then(|s| s.to_str())
-                .map(|s| (s.to_lowercase(), p))
+                .map(|s| (s.to_lowercase(), p.clone()))
         })
         .collect();
 
-    let mut in_degree: HashMap<String, usize> = note_index.keys().map(|k| (k.clone(), 0)).collect();
-
-    // key 直接借用 md_files 里的 PathBuf，避免这里复制一份路径列表。
-    let mut out_degree: HashMap<&PathBuf, usize> = md_files.iter().map(|p| (p, 0usize)).collect();
-    let mut referenced_images: HashSet<String> = HashSet::new();
+    let mut links_by_file = HashMap::new();
+    let mut referenced_images = HashSet::new();
 
     for file in &md_files {
-        let links = match extract_links(file) {
-            Ok(l) => l,
+        match extract_links(file) {
+            Ok(links) => {
+                links_by_file.insert(file.clone(), links);
+            }
             Err(e) => {
                 eprintln!("无法读取文件 {:?}：{}", file, e);
-                continue;
-            }
-        };
-
-        for link in links {
-            let link_stem = link.rsplit('/').next().unwrap_or(&link).to_lowercase();
-
-            if note_index.contains_key(&link_stem) {
-                *in_degree.entry(link_stem).or_insert(0) += 1;
-                *out_degree.entry(file).or_insert(0) += 1;
-            } else {
-                // 这里的生命周期有点绕，为了不报所有权错误直接用了 .clone()，后面有空再优化。
-                report.broken_links.push(NoteIssue::BrokenLink {
-                    file: file.clone(),
-                    link: link.clone(),
-                });
+                links_by_file.insert(file.clone(), Vec::new());
             }
         }
 
-        let image_refs = match extract_image_refs(file) {
-            Ok(r) => r,
+        match extract_image_refs(file) {
+            Ok(image_refs) => {
+                for img_name in image_refs {
+                    referenced_images.insert(img_name.to_lowercase());
+                }
+            }
             Err(e) => {
                 eprintln!("无法读取图片引用 {:?}：{}", file, e);
-                continue;
             }
-        };
-
-        for img_name in image_refs {
-            referenced_images.insert(img_name.to_lowercase());
         }
     }
 
-    for file in &md_files {
-        let stem = file
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_lowercase())
-            .unwrap_or_default();
+    let ctx = DiagnosticContext {
+        md_files,
+        asset_files,
+        note_index,
+        links_by_file,
+        referenced_images,
+    };
 
-        let is_unreferenced = in_degree.get(&stem).copied().unwrap_or(0) == 0;
-        let has_no_outgoing = out_degree.get(file).copied().unwrap_or(0) == 0;
-
-        if is_unreferenced && has_no_outgoing {
-            report
-                .orphan_notes
-                .push(NoteIssue::OrphanNote { file: file.clone() });
-        }
-    }
-
-    for asset in &asset_files {
-        let asset_name = asset
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|s| s.to_lowercase())
-            .unwrap_or_default();
-
-        if !referenced_images.contains(&asset_name) {
-            report.dead_assets.push(NoteIssue::DeadAsset {
-                file: asset.clone(),
-            });
-        }
-    }
+    apply_rule(BrokenLinkRule, &ctx, &mut report);
+    apply_rule(OrphanNoteRule, &ctx, &mut report);
+    apply_rule(DeadAssetRule, &ctx, &mut report);
 
     report
 }
